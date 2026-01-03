@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CubeLearn</title>
+
+<style>
+:root {
+  --accent: #00e5ff;
+  --bg: #0f1115;
+  --panel: rgba(0,0,0,0.65);
+  --text: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  background-size: cover;
+  background-position: center;
+}
+
+.overlay {
+  background: rgba(0,0,0,0.6);
+  min-height: 100vh;
+  padding: 20px;
+}
+
+h1 { text-align: center; }
+
+.scramble {
+  text-align: center;
+  font-size: 1.4rem;
+  margin: 15px 0;
+  letter-spacing: 2px;
+}
+
+.timer {
+  font-size: 5rem;
+  text-align: center;
+  margin: 20px 0;
+  color: var(--accent);
+}
+
+.controls, .mode {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  margin-bottom: 15px;
+}
+
+button {
+  background: var(--panel);
+  color: white;
+  border: 1px solid var(--accent);
+  padding: 10px 18px;
+  font-size: 1rem;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+button:hover {
+  background: var(--accent);
+  color: black;
+}
+
+input {
+  padding: 10px;
+  font-size: 1.1rem;
+  width: 140px;
+  border-radius: 6px;
+  border: none;
+  text-align: center;
+}
+
+.stats {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.panel {
+  background: var(--panel);
+  padding: 15px;
+  border-radius: 12px;
+  min-width: 130px;
+  text-align: center;
+}
+
+.solves {
+  max-width: 600px;
+  margin: auto;
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 15px;
+}
+
+.solve {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid #333;
+  padding: 6px 0;
+}
+
+.solve:first-child {
+  color: var(--accent);
+  font-weight: 600;
+}
+</style>
+</head>
+
+<body>
+<div class="overlay">
+
+<h1>CubeLearn</h1>
+
+<div class="scramble" id="scramble"></div>
+
+<div class="mode">
+  <button onclick="setMode('timer')">Timer Mode</button>
+  <button onclick="setMode('manual')">Manual Mode</button>
+</div>
+
+<div class="timer" id="timer">0.000</div>
+
+<div class="controls" id="manualControls" style="display:none;">
+  <input id="manualInput" placeholder="12.34" autocomplete="off">
+</div>
+
+<div class="controls">
+  <button onclick="addPenalty()">+2</button>
+  <button onclick="setDNF()">DNF</button>
+  <button onclick="saveSession()">Save</button>
+  <button onclick="resetSession()">Reset</button>
+</div>
+
+<div class="stats">
+  <div class="panel">Times<br><span id="count">0</span></div>
+  <div class="panel">ao5<br><span id="ao5">-</span></div>
+  <div class="panel">ao12<br><span id="ao12">-</span></div>
+</div>
+
+<div class="solves" id="solves"></div>
+
+<div style="text-align:center;">
+  <input type="file" accept="image/*" onchange="setBackground(event)">
+</div>
+
+</div>
+
+<script>
+/* ---------- STATE ---------- */
+let mode = "timer";
+let running = false;
+let startTime = 0;
+let interval;
+let solveList = [];
+let currentIndex = -1;
+let backgroundData = null;
+
+/* ---------- DOM ---------- */
+const timerEl = document.getElementById("timer");
+const scrambleEl = document.getElementById("scramble");
+const solvesDiv = document.getElementById("solves");
+const countEl = document.getElementById("count");
+const ao5El = document.getElementById("ao5");
+const ao12El = document.getElementById("ao12");
+const manualControls = document.getElementById("manualControls");
+const manualInput = document.getElementById("manualInput");
+
+/* ---------- SCRAMBLE ---------- */
+const moves = ["R","L","U","D","F","B"];
+const mods = ["","'","2"];
+
+function newScramble() {
+  let s = [];
+  let last = "";
+  while (s.length < 20) {
+    let m = moves[Math.floor(Math.random()*6)];
+    if (m === last) continue;
+    last = m;
+    s.push(m + mods[Math.floor(Math.random()*3)]);
+  }
+  scrambleEl.textContent = s.join(" ");
+}
+newScramble();
+
+/* ---------- TIMER ---------- */
+function format(ms) {
+  return (ms / 1000).toFixed(3);
+}
+
+document.addEventListener("keydown", e => {
+  if (mode === "timer" && e.code === "Space") {
+    e.preventDefault();
+    running ? stopTimer() : startTimer();
+  }
+});
+
+function startTimer() {
+  running = true;
+  startTime = performance.now();
+  interval = setInterval(() => {
+    timerEl.textContent = format(performance.now() - startTime);
+  }, 10);
+}
+
+function stopTimer() {
+  running = false;
+  clearInterval(interval);
+  addSolve(performance.now() - startTime);
+}
+
+/* ---------- MANUAL ---------- */
+manualInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    let v = parseFloat(manualInput.value);
+    if (!isNaN(v)) {
+      addSolve(v * 1000);
+      manualInput.value = "";
+    }
+  }
+});
+
+/* ---------- ADD SOLVE ---------- */
+function addSolve(time) {
+  solveList.push({ time, penalty: 0, dnf: false });
+  currentIndex = solveList.length - 1;
+  newScramble();
+  updateUI();
+}
+
+/* ---------- MODE ---------- */
+function setMode(m) {
+  mode = m;
+  manualControls.style.display = m === "manual" ? "flex" : "none";
+  if (m === "manual") manualInput.focus();
+}
+
+/* ---------- PENALTIES ---------- */
+function addPenalty() {
+  if (currentIndex >= 0 && !solveList[currentIndex].dnf) {
+    solveList[currentIndex].penalty += 2000;
+    updateUI();
+  }
+}
+
+function setDNF() {
+  if (currentIndex >= 0) {
+    solveList[currentIndex].dnf = true;
+    updateUI();
+  }
+}
+
+/* ---------- AVERAGES ---------- */
+function calcAO(n) {
+  let valid = solveList.filter(s => !s.dnf);
+  if (valid.length < n) return "-";
+  let last = valid.slice(-n).map(s => s.time + s.penalty);
+  last.sort((a,b)=>a-b);
+  last.shift();
+  last.pop();
+  return format(last.reduce((a,b)=>a+b,0)/(n-2));
+}
+
+/* ---------- UI ---------- */
+function updateUI() {
+  solvesDiv.innerHTML = "";
+
+  [...solveList].reverse().forEach((s,i)=>{
+    let idx = solveList.length - i;
+    let t = s.dnf ? "DNF" : format(s.time + s.penalty) + (s.penalty?" +":"");
+    let d = document.createElement("div");
+    d.className = "solve";
+    d.innerHTML = `<span>#${idx}</span><span>${t}</span>`;
+    solvesDiv.appendChild(d);
+  });
+
+  countEl.textContent = solveList.length;
+  ao5El.textContent = calcAO(5);
+  ao12El.textContent = calcAO(12);
+}
+
+/* ---------- SAVE / LOAD (WITH BACKGROUND) ---------- */
+function saveSession() {
+  localStorage.setItem("cubeTimerSession", JSON.stringify({
+    solves: solveList,
+    background: backgroundData
+  }));
+  alert("Session + background saved!");
+}
+
+function loadSession() {
+  const data = localStorage.getItem("cubeTimerSession");
+  if (!data) return;
+
+  const parsed = JSON.parse(data);
+  solveList = parsed.solves || [];
+  backgroundData = parsed.background || null;
+
+  if (backgroundData) {
+    document.body.style.backgroundImage = `url(${backgroundData})`;
+  }
+
+  currentIndex = solveList.length - 1;
+  updateUI();
+}
+loadSession();
+
+/* ---------- RESET ---------- */
+function resetSession() {
+  solveList = [];
+  currentIndex = -1;
+  updateUI();
+}
+
+/* ---------- BACKGROUND ---------- */
+function setBackground(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    backgroundData = reader.result;
+    document.body.style.backgroundImage = `url(${backgroundData})`;
+  };
+  reader.readAsDataURL(file);
+}
+</script>
+</body>
+</html>
+
